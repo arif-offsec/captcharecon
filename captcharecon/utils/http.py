@@ -66,6 +66,13 @@ class SessionManager:
         return self.session.get(url, headers=merged,
                                 timeout=self.timeout, **kwargs)
 
+    def use_browser_cookies(self, cookies: Dict[str, str]):
+        """Merge cookies captured by a BrowserSession (see --browser) into
+        this session — e.g. after headless Chrome clears a JS/redirect
+        challenge the target won't pass a plain HTTP client through."""
+        if cookies:
+            self.session.cookies.update(cookies)
+
     def rapid_get(self, url, count=10, jitter=0.05):
         """Send `count` requests with minimal delay — for rate limit probing."""
         responses = []

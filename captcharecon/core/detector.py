@@ -96,16 +96,26 @@ class CAPTCHADetector:
         self.session = session
         self.verbose = verbose
 
-    def run(self, url, **_):
+    def run(self, url, prefetched=None, **_):
         console.print(f"[cyan]Fetching:[/cyan] {url}")
 
-        try:
-            resp = self.session.get(url, allow_redirects=True)
-        except requests.RequestException as e:
-            console.print(f"[red]Request failed: {e}[/red]")
-            return {"error": str(e)}
+        if prefetched is not None:
+            # Already-loaded page from a --browser pre-flight (see cli.py) —
+            # reuse it instead of fetching again, so detect sees whatever
+            # headless Chrome actually rendered.
+            html           = prefetched.html
+            status_code    = prefetched.status_code
+            content_length = len(html.encode("utf-8", errors="ignore"))
+        else:
+            try:
+                resp = self.session.get(url, allow_redirects=True)
+            except requests.RequestException as e:
+                console.print(f"[red]Request failed: {e}[/red]")
+                return {"error": str(e)}
+            html           = resp.text
+            status_code    = resp.status_code
+            content_length = len(resp.content)
 
-        html    = resp.text
         soup    = BeautifulSoup(html, "lxml")
         scripts = self._collect_scripts(soup)
 
@@ -121,11 +131,11 @@ class CAPTCHADetector:
                     evidence = m["evidence"],
                 ))
 
-        self._print(findings, resp, soup)
+        self._print(findings, status_code, content_length, soup)
 
         return {
             "url":           url,
-            "status_code":   resp.status_code,
+            "status_code":   status_code,
             "captcha_found": len(findings) > 0,
             "captcha_count": len(findings),
             "findings":      [vars(f) for f in findings],
@@ -172,12 +182,12 @@ class CAPTCHADetector:
                 return m.group(1)
         return None
 
-    def _print(self, findings, resp, soup):
+    def _print(self, findings, status_code, content_length, soup):
         if not findings:
             console.print(
                 f"  [yellow]No known CAPTCHA detected.[/yellow]  "
-                f"[dim]HTTP {resp.status_code} | "
-                f"{len(resp.content)} bytes[/dim]"
+                f"[dim]HTTP {status_code} | "
+                f"{content_length} bytes[/dim]"
             )
             return
 

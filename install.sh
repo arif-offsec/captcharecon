@@ -55,6 +55,20 @@ apt-get install -y -qq \
   2>/dev/null
 ok "System packages ready"
 
+# ── Chromium (optional — only needed for --browser) ──────────────────────────
+# undetected-chromedriver drives an existing Chrome/Chromium install; pip
+# cannot install the browser itself. Not every apt mirror carries a real
+# chromium package (some Debian/Ubuntu releases only ship a snap stub), so
+# this step is best-effort and never fails the install.
+info "Installing Chromium for --browser (optional, best-effort)..."
+if apt-get install -y -qq chromium 2>/dev/null || apt-get install -y -qq chromium-browser 2>/dev/null; then
+  ok "Chromium installed — captcharecon --browser is ready to use"
+else
+  warn "Could not install Chromium from apt. captcharecon still works fully"
+  warn "without it — --browser just won't be available until Chrome or"
+  warn "Chromium is installed separately."
+fi
+
 # ── Remove EXTERNALLY-MANAGED restriction if present ─────────────────────────
 EXTERN_FILE=""
 for f in /usr/lib/python3*/EXTERNALLY-MANAGED; do
@@ -69,12 +83,13 @@ fi
 info "Installing and upgrading Python dependencies (all open-source)..."
 
 PYTHON_DEPS=(
-  "requests>=2.31.0"        # Apache 2.0 — HTTP library
-  "beautifulsoup4>=4.12.0"  # MIT — HTML parsing
-  "rich>=13.0.0"            # MIT — terminal formatting
-  "urllib3>=2.0.0"          # MIT — HTTP client
-  "lxml>=5.0.0"             # BSD — fast HTML/XML parser
-  "certifi>=2024.0.0"       # MPL 2.0 — CA certificates
+  "requests>=2.31.0"                  # Apache 2.0 — HTTP library
+  "beautifulsoup4>=4.12.0"            # MIT — HTML parsing
+  "rich>=13.0.0"                      # MIT — terminal formatting
+  "urllib3>=2.0.0"                    # MIT — HTTP client
+  "lxml>=5.0.0"                       # BSD — fast HTML/XML parser
+  "certifi>=2024.0.0"                 # MPL 2.0 — CA certificates
+  "undetected-chromedriver>=3.5.5"    # GPL v3 — powers --browser
 )
 
 for dep in "${PYTHON_DEPS[@]}"; do
@@ -83,6 +98,14 @@ for dep in "${PYTHON_DEPS[@]}"; do
   pip3 install --upgrade "$dep" --quiet
   ok "  $pkg_name — up to date"
 done
+
+# setuptools ships the distutils shim undetected-chromedriver needs on
+# Python 3.12+ (the stdlib dropped distutils; uc still imports it).
+if python3 -c 'import sys; sys.exit(0 if sys.version_info >= (3, 12) else 1)'; then
+  info "  Installing/upgrading: setuptools (distutils shim for Python 3.12+)"
+  pip3 install --upgrade "setuptools>=70.0.0" --quiet
+  ok "  setuptools — up to date"
+fi
 
 # ── Install CaptchaRecon itself ───────────────────────────────────────────────
 info "Installing CaptchaRecon to $INSTALL_DIR..."

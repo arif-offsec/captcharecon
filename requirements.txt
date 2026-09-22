@@ -1,14 +1,16 @@
 # CaptchaRecon — Python dependencies
 # All packages are free and open-source.
 #
-# Package          Licence       Source
-# ─────────────────────────────────────────────────────────────────
-# requests         Apache 2.0    https://github.com/psf/requests
-# beautifulsoup4   MIT           https://www.crummy.com/software/BeautifulSoup/
-# rich             MIT           https://github.com/Textualize/rich
-# urllib3          MIT           https://github.com/urllib3/urllib3
-# lxml             BSD           https://github.com/lxml/lxml
-# certifi          MPL 2.0       https://github.com/certifi/python-certifi
+# Package                   Licence       Source
+# ─────────────────────────────────────────────────────────────────────────
+# requests                  Apache 2.0    https://github.com/psf/requests
+# beautifulsoup4            MIT           https://www.crummy.com/software/BeautifulSoup/
+# rich                      MIT           https://github.com/Textualize/rich
+# urllib3                   MIT           https://github.com/urllib3/urllib3
+# lxml                      BSD           https://github.com/lxml/lxml
+# certifi                   MPL 2.0       https://github.com/certifi/python-certifi
+# undetected-chromedriver   GPL v3        https://github.com/ultrafunkamsterdam/undetected-chromedriver
+# setuptools                MIT           https://github.com/pypa/setuptools
 
 requests>=2.31.0
 beautifulsoup4>=4.12.0
@@ -16,3 +18,16 @@ rich>=13.0.0
 urllib3>=2.0.0
 lxml>=5.0.0
 certifi>=2024.0.0
+
+# Powers --browser (see cli.py / captcharecon/utils/browser.py). Only
+# imported when --browser is actually used, so its absence never breaks
+# the default requests-based scan. Also needs Google Chrome or Chromium
+# installed separately — pip can't install the browser itself.
+undetected-chromedriver>=3.5.5
+
+# undetected-chromedriver still imports `distutils`, which Python 3.12
+# dropped from the standard library. setuptools ships a compatibility
+# shim that fixes this transparently (confirmed while building this: on
+# bare Python 3.12, `import undetected_chromedriver` raises
+# "ModuleNotFoundError: No module named 'distutils'" without it).
+setuptools>=70.0.0; python_version >= "3.12"

@@ -146,18 +146,26 @@ class AntiBotMapper:
         self.session = session
         self.verbose = verbose
 
-    def run(self, url, **_):
+    def run(self, url, prefetched=None, **_):
         console.print(f"[cyan]Fetching for stack analysis:[/cyan] {url}")
 
-        try:
-            resp = self.session.get(url, allow_redirects=True)
-        except requests.RequestException as e:
-            console.print(f"[red]Request failed: {e}[/red]")
-            return {"error": str(e)}
+        if prefetched is not None:
+            # Already-loaded page from a --browser pre-flight (see cli.py).
+            # Headers/cookies come from Chrome's own performance log and
+            # cookie jar rather than a raw HTTP response — see browser.py.
+            headers = {k.lower(): v for k, v in (prefetched.headers or {}).items()}
+            cookies = {k.lower(): v for k, v in (prefetched.cookies or {}).items()}
+            html    = prefetched.html
+        else:
+            try:
+                resp = self.session.get(url, allow_redirects=True)
+            except requests.RequestException as e:
+                console.print(f"[red]Request failed: {e}[/red]")
+                return {"error": str(e)}
+            headers = {k.lower(): v for k, v in resp.headers.items()}
+            cookies = {c.name.lower(): c.value for c in resp.cookies}
+            html    = resp.text
 
-        headers = {k.lower(): v for k, v in resp.headers.items()}
-        cookies = {c.name.lower(): c.value for c in resp.cookies}
-        html    = resp.text
         soup    = BeautifulSoup(html, "lxml")
         scripts = self._scripts(soup)
 

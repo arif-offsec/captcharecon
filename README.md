@@ -65,6 +65,11 @@ Modules: detect, resilience, ratelimit, antibot
 Delay  : 1.0s per request
 ```
 
+If `--browser` was passed, this is also where headless Chrome runs once
+against the target before any module starts — see
+[Browser-Assisted Fetch](#browser-assisted-fetch---browser) for exactly
+what that does and what it cleans up afterwards.
+
 **Step 4 — Module 1: CAPTCHA Fingerprinting (`detect`)**
 - Fetches the page with a GET request
 - Parses the full HTML source and collects all script `src` attributes and inline JavaScript
@@ -156,6 +161,12 @@ All integrated libraries are free and open-source. No proprietary tools.
 | [urllib3](https://github.com/urllib3/urllib3) | MIT | HTTP transport |
 | [lxml](https://github.com/lxml/lxml) | BSD | Fast HTML/XML parser |
 | [certifi](https://github.com/certifi/python-certifi) | MPL 2.0 | CA certificates |
+| [undetected-chromedriver](https://github.com/ultrafunkamsterdam/undetected-chromedriver) | GPL v3 | Headless Chrome for `--browser` |
+| [setuptools](https://github.com/pypa/setuptools) | MIT | `distutils` shim `undetected-chromedriver` needs on Python 3.12+ |
+
+`undetected-chromedriver` also needs Google Chrome or Chromium installed
+separately — pip can't install the browser itself. Everything else works
+with no browser installed; `--browser` is the only thing that needs one.
 
 ---
 
@@ -202,6 +213,17 @@ captcharecon -u https://target.com/login --modules detect antibot
 captcharecon -u https://target.com/login --proxy http://127.0.0.1:8080
 ```
 
+### Get past a basic JS/redirect wall with headless Chrome
+
+```bash
+captcharecon -u https://target.com/login --browser
+```
+
+Loads the target once in headless Chrome (undetected-chromedriver) before
+the modules run, then hands the resulting cookies to every module. See
+[Browser-Assisted Fetch (`--browser`)](#browser-assisted-fetch---browser)
+below for what this does and doesn't do.
+
 ### Deep rate limit probe
 
 ```bash
@@ -222,6 +244,7 @@ captcharecon -u https://target.com/login --full --output report.json
 --full                       Run all modules with extended checks
 --output FILE                Save JSON report to FILE
 --proxy URL                  Proxy URL (Burp / Caido / ZAP)
+-b, --browser                Fetch with headless Chrome first, reuse its cookies
 --delay SECS                 Delay between requests (default: 1.0)
 --timeout SECS               Request timeout (default: 10)
 --ratelimit-requests N       Requests for rate limit probing (default: 10)
@@ -312,6 +335,71 @@ captcharecon -u https://target.com/login --proxy http://127.0.0.1:8090
 
 ---
 
+## Browser-Assisted Fetch (`--browser`)
+
+Every module normally talks to the target with plain HTTP requests. That's
+fast, but some targets sit behind a JS challenge or redirect check that
+never even shows a plain HTTP client the real page — the requests-based
+modules would then be fingerprinting a challenge page, not the target.
+
+`--browser` adds one step before the modules run: it loads the target once
+in headless Chrome via
+[undetected-chromedriver](https://github.com/ultrafunkamsterdam/undetected-chromedriver),
+then hands the resulting cookies to the same `requests` session every
+module already uses. `detect` and `antibot` also reuse that browser-loaded
+page directly instead of fetching the target a second time. `resilience`
+and `ratelimit` still make their own requests — they're testing exact,
+often deliberately malformed request bodies, which needs raw control a
+browser doesn't give you — but they benefit from the cookies.
+
+```bash
+captcharecon -u https://target.com/login --browser
+```
+
+### What it needs
+
+Google Chrome or Chromium installed on the system running captcharecon.
+`pip install undetected-chromedriver` installs the Python driver, not the
+browser itself — `install.sh` tries to install Chromium via apt as an
+optional step, but not every apt mirror carries it (Ubuntu 24.04's default
+repos, for one, only ship a snap-based `chromium-browser` stub). If no
+browser is available, or `undetected-chromedriver` can't start it for any
+other reason, `--browser` prints a warning and the scan continues exactly
+as if `--browser` had never been passed — it never crashes the scan.
+
+### Temp files
+
+Everything the browser instance creates — its Chrome profile, disk cache,
+crash dumps — is written to one private temp directory made just for that
+instance, and deleted the moment the fetch finishes, whether it succeeded
+or failed. `undetected-chromedriver` does not do this cleanup on its own:
+by default it makes a temp profile and removes it at exit, but that
+auto-removal turns off the moment you hand it an explicit profile path —
+which captcharecon always does, specifically so it can guarantee where
+that data goes and that it's actually removed. See
+`captcharecon/utils/browser.py` for the implementation.
+
+### What this does not do
+
+- **It does not solve, bypass, or interact with any CAPTCHA** — same as
+  every other module. It only gets the page to load.
+- **It does not hide your IP.** undetected-chromedriver defeats
+  browser/JS fingerprinting, not network-level identification — running
+  from a datacenter or a flagged residential IP can still get you blocked
+  even with `--browser` on.
+- **Headless is explicitly the more detectable mode.** The library's own
+  docs describe headless as lowering undetectability and "not fully
+  supported." If a target blocks `--browser` but not a real browser, that
+  matches expectations rather than indicating a bug — some teams instead
+  run this kind of tooling headed, under a virtual display like Xvfb, for
+  that reason.
+- **The underlying package is not fast-moving.** The latest
+  `undetected-chromedriver` release on PyPI is 3.5.5 (Feb 2024). Bot
+  detection techniques don't stand still, so treat `--browser` as another
+  data point, not a guarantee.
+
+---
+
 ## Project Structure
 
 ```
@@ -326,7 +414,8 @@ captcharecon/
 │   │   ├── antibot.py      ← WAF/bot mgmt/fingerprinting/security headers
 │   │   └── reporter.py     ← summary table + JSON export
 │   └── utils/
-│       └── http.py         ← shared session, throttle, proxy support
+│       ├── http.py         ← shared session, throttle, proxy support
+│       └── browser.py      ← headless Chrome session for --browser
 ├── man/
 │   └── captcharecon.1      ← man page source
 ├── install.sh              ← system-wide installer

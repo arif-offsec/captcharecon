@@ -15,6 +15,7 @@ captcharecon \- CAPTCHA and Anti-Automation Reconnaissance Toolkit
 .IR FILE ]
 .RB [ \-\-proxy
 .IR URL ]
+.RB [ \-b ]
 .RB [ \-\-delay
 .IR SECS ]
 .RB [ \-\-timeout
@@ -81,9 +82,17 @@ and OWASP ZAP.
 Example: http://127.0.0.1:8080
 
 .TP
-.BI "\-\-delay " SECS
-Delay in seconds between requests. Default: 1.0. Lower values increase
-speed but may trigger rate limiting on the target.
+.B "\-b, \-\-browser"
+Fetch the target once with headless Chrome (undetected\-chromedriver)
+before running any module, then reuse the resulting cookies for every
+module; detect and antibot also reuse the browser\-loaded page itself.
+Requires Google Chrome or Chromium to be installed. Falls back to plain
+HTTP requests with a warning if the browser cannot start \(em this never
+aborts the scan. Everything the browser instance creates (profile, cache,
+crash dumps) is written to a private temp directory that is deleted the
+moment the fetch finishes. Does not hide your IP address, and headless
+mode is inherently more detectable than a full browser; see README.md for
+details.
 
 .TP
 .BI "\-\-timeout " SECS
@@ -119,6 +128,10 @@ Run only fingerprinting and anti-bot mapping:
 .TP
 Route through Burp Suite on port 8080:
 .B captcharecon \-u https://target.com/login \-\-proxy http://127.0.0.1:8080
+
+.TP
+Get past a basic JS/redirect wall with headless Chrome:
+.B captcharecon \-u https://target.com/login \-\-browser
 
 .TP
 Deep rate limit probe with 30 requests:
@@ -215,12 +228,14 @@ suppressed.
 All integrated libraries are free and open-source:
 
 .RS
-requests       Apache 2.0    HTTP library (kennethreitz/requests)
-beautifulsoup4 MIT           HTML parsing (waylan/beautifulsoup)
-rich           MIT           Terminal UI (Textualize/rich)
-urllib3        MIT           HTTP client (urllib3/urllib3)
-lxml           BSD           XML/HTML parser (lxml/lxml)
-certifi        MPL 2.0       CA certificates (certifi/python-certifi)
+requests                Apache 2.0  HTTP library (kennethreitz/requests)
+beautifulsoup4          MIT         HTML parsing (waylan/beautifulsoup)
+rich                    MIT         Terminal UI (Textualize/rich)
+urllib3                 MIT         HTTP client (urllib3/urllib3)
+lxml                    BSD         XML/HTML parser (lxml/lxml)
+certifi                 MPL 2.0     CA certificates (certifi/python-certifi)
+undetected-chromedriver GPL v3      Headless Chrome for \-\-browser
+setuptools              MIT         distutils shim needed on Python 3.12+
 .RE
 
 .SH FILES

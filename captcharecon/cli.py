@@ -18,6 +18,7 @@ from captcharecon.core.ratelimit  import RateLimitAnalyzer
 from captcharecon.core.antibot    import AntiBotMapper
 from captcharecon.core.reporter   import Reporter
 from captcharecon.utils.http      import SessionManager
+from captcharecon.utils.browser   import BrowserSession, BrowserFetchError
 
 console = Console()
 
@@ -93,6 +94,7 @@ examples:
   captcharecon -u https://target.com/login --modules detect antibot
   captcharecon -u https://target.com/login --full --output report.json
   captcharecon -u https://target.com/login --proxy http://127.0.0.1:8080
+  captcharecon -u https://target.com/login --browser
 
 manual:
   man captcharecon
@@ -111,6 +113,14 @@ manual:
         help="Save JSON report to FILE")
     parser.add_argument("--proxy", metavar="URL",
         help="Proxy URL e.g. http://127.0.0.1:8080")
+    parser.add_argument("-b", "--browser", action="store_true",
+        help="Fetch the target with headless Chrome (undetected-chromedriver) "
+             "first, to get past basic JS/redirect bot walls, then reuse the "
+             "resulting cookies for every module. Requires Google Chrome or "
+             "Chromium to be installed. Falls back to plain HTTP requests "
+             "with a warning if the browser can't start. Every file the "
+             "browser instance creates is written to a private temp "
+             "directory that is deleted the moment the fetch finishes.")
     parser.add_argument("--delay", type=float, default=1.0, metavar="SECS",
         help="Delay between requests in seconds (default: 1.0)")
     parser.add_argument("--timeout", type=int, default=10,
@@ -143,6 +153,46 @@ def run_module(label, fn, *args, verbose=False, **kwargs):
     return result
 
 
+def run_browser_prefetch(args, target, session):
+    """
+    Optional pre-flight for --browser: load the target once in headless
+    Chrome to get past basic JS/redirect bot walls, then hand the resulting
+    cookies to the `requests` session every module already uses.
+
+    Returns a BrowserResponse for the detect/antibot modules to reuse (so
+    they see the same browser-rendered page instead of fetching again), or
+    None if --browser wasn't passed or the browser couldn't run. In the
+    None case every module just does its normal plain-requests fetch,
+    exactly as if --browser had never been mentioned — this function must
+    never be the reason a scan fails.
+    """
+    if not args.browser:
+        return None
+
+    console.print("[cyan]Launching headless Chrome (undetected-chromedriver)...[/cyan]")
+    try:
+        with BrowserSession(timeout=args.timeout, user_agent=args.user_agent,
+                             proxy=args.proxy) as browser:
+            response = browser.get(target)
+            session.use_browser_cookies(browser.cookies_for_requests())
+    except BrowserFetchError as e:
+        console.print(f"[yellow]Browser fetch failed:[/yellow] {e}")
+        console.print("[yellow]Continuing with plain HTTP requests for every module.[/yellow]\n")
+        return None
+    except Exception as e:  # last-resort net — --browser must never crash the scan
+        console.print(f"[yellow]Browser fetch failed unexpectedly:[/yellow] {e}")
+        console.print("[yellow]Continuing with plain HTTP requests for every module.[/yellow]\n")
+        return None
+
+    shown_status = response.status_code if response.status_code is not None else "unknown"
+    console.print(
+        f"[green]Browser fetch complete[/green] — "
+        f"HTTP {shown_status}, {len(response.html)} bytes, "
+        f"{len(response.cookies)} cookie(s) captured. Temp profile removed.\n"
+    )
+    return response
+
+
 def main():
     parser = build_parser()
     args   = parser.parse_args()
@@ -170,12 +220,14 @@ def main():
         user_agent=args.user_agent, delay=args.delay,
     )
 
+    browser_response = run_browser_prefetch(args, target, session)
+
     results = {"target": target, "modules": {}}
 
     if "detect" in modules:
         r = run_module("CAPTCHA Fingerprinting",
                        CAPTCHADetector(session, verbose=args.verbose).run,
-                       target, verbose=args.verbose)
+                       target, verbose=args.verbose, prefetched=browser_response)
         if r:
             results["modules"]["detect"] = r
 
@@ -198,7 +250,7 @@ def main():
     if "antibot" in modules:
         r = run_module("Anti-Automation Stack Mapping",
                        AntiBotMapper(session, verbose=args.verbose).run,
-                       target, verbose=args.verbose)
+                       target, verbose=args.verbose, prefetched=browser_response)
         if r:
             results["modules"]["antibot"] = r
 
